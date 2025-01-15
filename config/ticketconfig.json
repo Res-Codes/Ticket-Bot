@@ -1,0 +1,12 @@
+{
+    "ticketEmbedId": "",
+    "channelId": "ticket_embed_channel",
+    "color": "FFFFFF",
+    "title": "Ticket-System",
+    "description": "your text",
+    "footer": "your text",
+    "image": {
+        "url": "https://your.image.com"
+    },
+    "transcript": "transcript_channel"
+}
