@@ -58,7 +58,7 @@ client.once('ready', async () => {
             { body: commands }
         );
         console.log('✅ Globale Slash-Kommandos registriert.');
-        setInterval(() => checkEmbed(client), 30000);
+        setInterval(() => checkEmbed(client), 2000);
     } catch (error) {
         console.error('❌ Fehler bei der Registrierung:', error);
     }
@@ -356,39 +356,73 @@ async function handleSelectMenuInteraction(interaction) {
 
 // Embed-Überprüfung
 async function checkEmbed(client) {
-    if (isChecking) return;
-    isChecking = true;
-
     try {
         const channel = await client.channels.fetch(ticketConfig.channelId);
-        const message = await channel.messages.fetch(ticketConfig.ticketEmbedId);
+
+        if (!channel) {
+            console.warn(`⚠️ Channel mit der ID ${ticketConfig.channelId} wurde nicht gefunden.`);
+            return; // Wenn der Channel nicht existiert, abbrechen
+        }
+
+        try {
+            const message = await channel.messages.fetch(ticketConfig.ticketEmbedId);
+
+            if (!message) {
+                console.warn(`⚠️ Embed-Nachricht nicht gefunden. Neues Embed wird gesendet.`);
+                await sendNewEmbed(channel);
+            } else {
+                console.log("✅ Embed ist bereits vorhanden.");
+            }
+
+        } catch (messageError) {
+            if (messageError.code === 10008) {
+                console.warn(`⚠️ Die Embed-Nachricht existiert nicht mehr. Neues Embed wird gesendet.`);
+                await sendNewEmbed(channel);
+            } else {
+                console.error("❌ Fehler beim Abrufen der Nachricht:", messageError);
+            }
+        }
+
     } catch (error) {
-        console.log("❗ Embed fehlt, neues wird gesendet.");
-        const channel = await client.channels.fetch(ticketConfig.channelId);
-        await sendNewEmbed(channel);
-    } finally {
-        isChecking = false;
+        if (error.code === 10003) {
+            console.warn(`⚠️ Channel mit der ID ${ticketConfig.channelId} existiert nicht. Embed wird nicht gesendet.`);
+        } else {
+            console.error("❌ Fehler bei der Embed-Prüfung:", error);
+        }
     }
 }
 
+
 // Neues Embed senden
 async function sendNewEmbed(channel) {
-    const embed = {
-        color: parseInt(ticketConfig.color.replace("#", ""), 16),
-        title: ticketConfig.title,
-        description: ticketConfig.description,
-        footer: { text: ticketConfig.footer },
-        image: ticketConfig.image ? { url: ticketConfig.image.url } : undefined  
-    };
+    const embed = new EmbedBuilder()
+        .setColor(parseInt(ticketConfig.color.replace("#", ""), 16))
+        .setTitle(ticketConfig.title)
+        .setDescription(ticketConfig.description)
+        .setFooter({ text: ticketConfig.footer });
+
+    // ✅ Bild nur hinzufügen, wenn eine URL existiert
+    if (ticketConfig.image && ticketConfig.image.url && ticketConfig.image.url.trim() !== "") {
+        embed.setImage(ticketConfig.image.url);
+    }
+
+    const dropdownOptions = dropdownConfig.dropdownOptions
+        .filter(option => option.label && option.description && option.value) // Leere Einträge vermeiden
+        .map(option => ({
+            label: option.label,
+            description: option.description,
+            value: option.value
+        }));
+
+    if (dropdownOptions.length === 0) {
+        console.error("❌ Keine gültigen Dropdown-Optionen gefunden.");
+        return;
+    }
 
     const dropdownMenu = new StringSelectMenuBuilder()
         .setCustomId('ticket_dropdown')
         .setPlaceholder('Bitte auswählen')
-        .addOptions(dropdownConfig.dropdownOptions.map(option => ({
-            label: option.label,
-            description: option.description,
-            value: option.value
-        })));
+        .addOptions(dropdownOptions);
 
     const actionRow = new ActionRowBuilder().addComponents(dropdownMenu);
 
@@ -397,6 +431,7 @@ async function sendNewEmbed(channel) {
     saveTicketConfig(ticketConfig);
     console.log("✅ Embed gesendet.");
 }
+
 
 // Config speichern
 function saveTicketConfig(config) {
@@ -473,8 +508,8 @@ const newChannel = await interaction.guild.channels.create({
                 const embed = new EmbedBuilder()
                     .setColor(parseInt(ticketConfig.color.replace("#", ""), 16))
                     .setTitle("📨 Willkommen im Res-Codes-Support!")
-                    .setDescription(":flag_us: **ENGLISH**\nWelcome to Res-Codes-Support! We are here to help you.\n\n" +
-                                    ":flag_de: **GERMAN**\nHerzlich willkommen beim Res-Codes-Support! Wir helfen dir gerne weiter.\n\n" +
+                    .setDescription(":flag_us: **ENGLISH**\nWelcome to Res-Codes-Support! We are here to help you with your concerns. How can we support you today?\n\n" +
+                                    ":flag_de: **GERMAN**\nHerzlich willkommen beim Res-Codes-Support! Wir sind hier, um Ihnen bei Ihren Anliegen zu helfen. Wie können wir Sie heute unterstützen?\n\n" +
                                     `👤 | User: <@${interaction.user.id}>`)
                     .setFooter({ text: `Ticket erstellt von ${interaction.user.tag}` })
                     .setImage(ticketConfig.image ? ticketConfig.image.url : null);
@@ -503,16 +538,39 @@ const newChannel = await interaction.guild.channels.create({
     
     } else if (interaction.customId && interaction.customId.startsWith('close_ticket')) {
         const channelId = interaction.customId.split('_')[2];
-        const channel = await interaction.guild.channels.fetch(channelId);
+    
+        let channel;
+        try {
+            channel = await interaction.guild.channels.fetch(channelId);
+            if (!channel) throw new Error("Channel nicht gefunden.");
+        } catch (error) {
+            console.error("❌ Fehler beim Abrufen des Channels:", error);
+            return await interaction.reply({
+                content: "❗ Fehler: Der Channel konnte nicht gefunden werden. Bitte überprüfe die Konfiguration.",
+                flags: 64
+            });
+        }
     
         // 🔍 Ticket-Ersteller aus dem Channel-Topic ermitteln
         const ticketOwnerId = channel.topic?.match(/\d{17,19}/)?.[0];
         if (!ticketOwnerId) {
             console.error("❌ Ticket-Ersteller konnte nicht ermittelt werden.");
-            return await interaction.reply({ content: "❌ Fehler: Der Ticket-Ersteller konnte nicht ermittelt werden.", flags: 64 });
+            return await interaction.reply({
+                content: "❗ Fehler: Der Ticket-Ersteller konnte nicht ermittelt werden.",
+                flags: 64
+            });
         }
-        
-        const ticketOwner = await interaction.guild.members.fetch(ticketOwnerId);        
+    
+        let ticketOwner;
+        try {
+            ticketOwner = await interaction.guild.members.fetch(ticketOwnerId);
+        } catch (error) {
+            console.error("❌ Fehler beim Abrufen des Ticket-Erstellers:", error);
+            return await interaction.reply({
+                content: "❗ Fehler: Der Ticket-Ersteller konnte nicht gefunden werden.",
+                flags: 64
+            });
+        }
     
         const closeEmbed = new EmbedBuilder()
             .setColor(parseInt(ticketConfig.color.replace("#", ""), 16))
@@ -522,6 +580,8 @@ const newChannel = await interaction.guild.channels.create({
                 { name: '〢Closed', value: new Date().toLocaleString("de-DE"), inline: false },
                 { name: '〢Geschlossen von', value: `${interaction.user.tag}`, inline: false }
             );
+    
+        let transcriptCreated = false;
     
         try {
             // 📂 Sicherstellen, dass der 'transcripts'-Ordner existiert
@@ -541,6 +601,12 @@ const newChannel = await interaction.guild.channels.create({
     
             // 🎯 Transcript-Channel aus der ticketConfig laden
             const transcriptChannelId = ticketConfig.transcript;
+    
+            // ✅ Validierung der Transcript-Channel-ID
+            if (!/^\d{17,19}$/.test(transcriptChannelId)) {
+                throw new Error("Ungültige Transcript-Channel-ID.");
+            }
+    
             const transcriptChannel = await interaction.guild.channels.fetch(transcriptChannelId);
     
             // 📂 Transcript im festgelegten Channel hochladen
@@ -549,10 +615,8 @@ const newChannel = await interaction.guild.channels.create({
                 files: [transcript]
             });
     
-            // 📎 Download-Link für das Transcript
             const downloadURL = sentMessage.attachments.first().url;
     
-            // 📥 Download-Button erstellen
             const downloadButton = new ButtonBuilder()
                 .setLabel('📥 Transcript herunterladen')
                 .setStyle(ButtonStyle.Link)
@@ -566,14 +630,30 @@ const newChannel = await interaction.guild.channels.create({
                 components: [actionRow]
             });
     
+            transcriptCreated = true;
+    
         } catch (error) {
-            console.error("❌ Fehler beim Erstellen des Transkripts:", error);
-            await interaction.reply({ content: "❌ Fehler: Das Transkript konnte nicht erstellt werden.", flags: 64 });
+            console.error("❌ Fehler beim Erstellen des Transkripts Falsche TranscriptChannel-ID");
+    
+            // 📬 Embed OHNE Transcript-Button an den Ticket-Ersteller senden
+            await ticketOwner.send({
+                embeds: [closeEmbed],
+                content: "⚠️ Das Transcript konnte nicht erstellt werden. Das Ticket wurde dennoch geschlossen."
+            });
         }
     
         // 🗑️ Ticket-Channel löschen
-        await channel.delete();
-    }    
+        try {
+            await channel.delete();
+        } catch (error) {
+            console.error("❌ Fehler beim Löschen des Channels:", error);
+            return await interaction.reply({
+                content: "❗ Fehler: Der Channel konnte nicht gelöscht werden.",
+                flags: 64
+            });
+        }
+    }
+    
 });
 
 client.login(token);
