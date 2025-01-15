@@ -1,5 +1,11 @@
 {
     "dropdownOptions": [
-
+        {
+            "label": "Example Label",
+            "description": "Example description",
+            "value": "example_label",
+            "category": "1328982023582384189",
+            "modalName": "ExampleLabelModal"
+        }
     ]
 }
