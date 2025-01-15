@@ -36,6 +36,7 @@ Ein leistungsstarker Discord-Bot zur Verwaltung von Support-Tickets mit einer in
 
 ### `/config`
 - 📊 Öffnet das Ticket-Configpanel mit Buttons zum bearbeiten der Config.
+- Sollte etwas an der Config für die Ticket-Embed geändert werden müsst ihr die Ticket-Embed einmal löschen dann wird diese wieder richtig innerhalb 30sek gesendet
 
 ## 👨‍💻 Rollen & Berechtigungen
 
